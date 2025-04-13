@@ -78,12 +78,16 @@ class NodeWriter(KN5Writer):
 
     def write(self):
         self._write_base_node(None, "BlenderFile")
+        # Only process objects that are in the active view layer and not hidden
+        view_layer = self.context.view_layer
         for obj in sorted(self.context.blend_data.objects, key=lambda k: len(k.children)):
-            if not obj.parent:
+            # Skip objects that are in excluded collections
+            if not obj.parent and obj.visible_get(view_layer=view_layer):
                 self._write_object(obj)
 
     def _write_object(self, obj):
-        if not obj.name.startswith("__"):
+        view_layer = self.context.view_layer
+        if not obj.name.startswith("__") and obj.visible_get(view_layer=view_layer):
             if obj.type == "MESH":
                 if obj.children:
                     raise Exception(f"A mesh cannot contain children ('{obj.name}')")
@@ -91,7 +95,8 @@ class NodeWriter(KN5Writer):
             else:
                 self._write_base_node(obj, obj.name)
             for child in obj.children:
-                self._write_object(child)
+                if child.visible_get(view_layer=view_layer):
+                    self._write_object(child)
 
     def _any_child_is_mesh(self, obj):
         for child in obj.children:
@@ -103,10 +108,12 @@ class NodeWriter(KN5Writer):
         node_data = {}
         matrix = None
         num_children = 0
+        view_layer = self.context.view_layer
+        
         if not obj:
             matrix = Matrix()
             for obj in self.context.blend_data.objects:
-                if not obj.parent and not obj.name.startswith("__"):
+                if not obj.parent and not obj.name.startswith("__") and obj.visible_get(view_layer=view_layer):
                     num_children += 1
         else:
             if not self._is_ac_object(obj.name) and not self._any_child_is_mesh(obj):
@@ -115,7 +122,7 @@ class NodeWriter(KN5Writer):
                 self.warnings.append(msg)
             matrix = convert_matrix(obj.matrix_local)
             for child in obj.children:
-                if not child.name.startswith("__"):
+                if not child.name.startswith("__") and child.visible_get(view_layer=view_layer):
                     num_children += 1
 
         node_data["name"] = node_name
@@ -217,7 +224,11 @@ class NodeWriter(KN5Writer):
 
     def _split_object_by_materials(self, obj):
         meshes = []
-        mesh_copy = obj.to_mesh()
+        # Get evaluated object with modifiers applied
+        depsgraph = self.context.evaluated_depsgraph_get()
+        obj_eval = obj.evaluated_get(depsgraph)
+        # Create a mesh from the evaluated object (with modifiers applied)
+        mesh_copy = obj_eval.to_mesh()
 
         bm = bmesh.new()
         bm.from_mesh(mesh_copy)

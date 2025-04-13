@@ -17,7 +17,7 @@
 import os
 import re
 import bmesh
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 from .exporter_utils import (
     convert_matrix,
     convert_vector3,
@@ -44,6 +44,64 @@ NODE_SETTINGS = (
     "transparent",
     "renderable",
 )
+
+
+class UvVertex:
+    def __init__(self, co, normal, uv, tangent):
+        self.co = co
+        self.normal = normal
+        self.uv = uv
+        self.tangent = tangent
+    
+    def __eq__(self, other):
+        if not isinstance(other, UvVertex):
+            return False
+        return (self.co == other.co and
+                self.normal == other.normal and
+                self.uv == other.uv)
+    
+    def __hash__(self):
+        return hash((self.co[0], self.co[1], self.co[2],
+                     self.normal[0], self.normal[1], self.normal[2],
+                     self.uv[0], self.uv[1]))
+
+
+class Mesh:
+    def __init__(self, material_id, vertices, indices):
+        self.material_id = material_id
+        self.vertices = vertices
+        self.indices = indices
+
+
+class NodeProperties:
+    def __init__(self, obj):
+        self.lodIn = 0
+        self.lodOut = 1000
+        self.layer = 0
+        self.castShadows = True
+        self.visible = True
+        self.transparent = False
+        self.renderable = True
+        
+        # Use custom properties from the object if they exist
+        if obj and hasattr(obj, "ac_properties"):
+            props = obj.ac_properties
+            for prop_name in NODE_SETTINGS:
+                if hasattr(props, prop_name):
+                    setattr(self, prop_name, getattr(props, prop_name))
+
+
+class NodeSettings:
+    def __init__(self, settings, node_key):
+        self.node_regexp = re.compile(node_key)
+        self.settings = {}
+        for setting_name in NODE_SETTINGS:
+            if setting_name in settings[NODES][node_key]:
+                self.settings[setting_name] = settings[NODES][node_key][setting_name]
+    
+    def apply_settings_to_node(self, node_properties):
+        for setting_name, setting_value in self.settings.items():
+            setattr(node_properties, setting_name, setting_value)
 
 
 class NodeWriter(KN5Writer):
@@ -328,101 +386,3 @@ class NodeWriter(KN5Writer):
             x += texture_node.texture_mapping.translation[0]
             y += texture_node.texture_mapping.translation[1]
         return (x, y)
-
-
-class NodeProperties:
-    def __init__(self, node):
-        ac_node = node.assettoCorsa
-        self.name = node.name
-        self.lodIn = ac_node.lodIn
-        self.lodOut = ac_node.lodOut
-        self.layer = ac_node.layer
-        self.castShadows = ac_node.castShadows
-        self.visible = ac_node.visible
-        self.transparent = ac_node.transparent
-        self.renderable = ac_node.renderable
-
-
-class NodeSettings:
-    def __init__(self, settings, node_settings_key):
-        self._settings = settings
-        self._node_settings_key = node_settings_key
-        self._node_name_matches = self._convert_to_matches_list(node_settings_key)
-
-    def apply_settings_to_node(self, node):
-        if not self._does_node_name_match(node.name):
-            return
-        for setting in NODE_SETTINGS:
-            setting_val = self._get_node_setting(setting)
-            if setting_val is not None:
-                setattr(node, setting, setting_val)
-
-    def _does_node_name_match(self, node_name):
-        for regex in self._node_name_matches:
-            if regex.match(node_name):
-                return True
-        return False
-
-    def _convert_to_matches_list(self, key):
-        matches = []
-        for subkey in key.split("|"):
-            matches.append(re.compile(f"^{self._escape_match_key(subkey)}$", re.IGNORECASE))
-        return matches
-
-    def _escape_match_key(self, key):
-        wildcard_replacement = "__WILDCARD__"
-        key = key.replace("*", wildcard_replacement)
-        key = re.escape(key)
-        key = key.replace(wildcard_replacement, ".*")
-        return key
-
-    def _get_node_setting(self, setting):
-        if setting in self._settings[NODES][self._node_settings_key]:
-            return self._settings[NODES][self._node_settings_key][setting]
-        return None
-
-
-class UvVertex:
-    def __init__(self, co, normal, uv, tangent):
-        self.co = co
-        self.normal = normal
-        self.uv = uv
-        self.tangent = tangent
-        self.hash = None
-
-    def __hash__(self):
-        if not self.hash:
-            self.hash = hash(
-                hash(self.co[0]) ^
-                hash(self.co[1]) ^
-                hash(self.co[2]) ^
-                hash(self.normal[0]) ^
-                hash(self.normal[1]) ^
-                hash(self.normal[2]) ^
-                hash(self.uv[0]) ^
-                hash(self.uv[1]) ^
-                hash(self.tangent[0]) ^
-                hash(self.tangent[1]) ^
-                hash(self.tangent[2])
-            )
-        return self.hash
-
-    def __eq__(self, other):
-        if self.co[0] != other.co[0] or self.co[1] != other.co[1] or self.co[2] != other.co[2]:
-            return False
-        if self.normal[0] != other.normal[0] or self.normal[1] != other.normal[1] or self.normal[2] != other.normal[2]:
-            return False
-        if self.uv[0] != other.uv[0] or self.uv[1] != other.uv[1]:
-            return False
-        if (self.tangent[0] != other.tangent[0]
-                or self.tangent[1] != other.tangent[1]
-                or self.tangent[2] != other.tangent[2]):
-            return False
-        return True
-
-
-class Mesh:
-    def __init__(self, material_id, vertices, indices):
-        self.material_id = material_id
-        self.vertices = vertices
-        self.indices = indices

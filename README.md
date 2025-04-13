@@ -21,7 +21,7 @@
 
 
 ## Requirements
-This addon is made for the latest Blender version (currently 3.0.0), others may work but are not supported.
+This addon is made for the latest Blender version (currently 4.3.0), others may work but are not supported.
 
 
 ## Install
